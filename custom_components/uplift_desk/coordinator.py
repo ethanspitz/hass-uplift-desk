@@ -20,6 +20,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
+from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from .const import DOMAIN
@@ -96,19 +97,62 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
             self._desk.bleak_client.is_connected
 
     async def async_connect(self):
-        if not self.is_connected:
-            self._desk.bleak_client = await establish_connection(
-                BleakClientWithServiceCache,
-                self._ble_device,
-                self._ble_device.name or self.desk_name or "Unknown",
-                max_attempts=3
-            )
+        if self.is_connected:
+            return
+
+        if self._desk.bleak_client is not None:
+            try:
+                await self._desk.bleak_client.disconnect()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Error disconnecting stale client for %s: %s", self.desk_info, err)
+            self._desk.bleak_client = None
+
+        self._desk.bleak_client = await establish_connection(
+            BleakClientWithServiceCache,
+            self._ble_device,
+            self._ble_device.name or self.desk_name or "Unknown",
+            max_attempts=3
+        )
 
     async def async_disconnect(self):
+        if self._desk.bleak_client is None:
+            return
         try:
             await self._desk.bleak_client.disconnect()
         finally:
             self._desk.bleak_client = None
+
+    async def _async_reconnect(self):
+        """Tear down the current client (clearing service cache) and reconnect."""
+        client = self._desk.bleak_client
+        if isinstance(client, BleakClientWithServiceCache):
+            try:
+                await client.clear_cache()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Error clearing service cache for %s: %s", self.desk_info, err)
+        await self.async_disconnect()
+        await self.async_connect()
+        await self._desk.start_notify()
+
+    async def _async_run_command(self, action_name: str, command):
+        """Run a desk command, reconnecting and retrying once on stale-cache errors."""
+        await self.async_connect()
+        try:
+            return await command()
+        except BleakCharacteristicNotFoundError as err:
+            _LOGGER.warning(
+                "Desk %s reported missing characteristic during %s (%s); refreshing connection and retrying",
+                self.desk_info, action_name, err,
+            )
+            await self._async_reconnect()
+            return await command()
+        except BleakError as err:
+            _LOGGER.warning(
+                "Bluetooth error on desk %s during %s (%s); refreshing connection and retrying",
+                self.desk_info, action_name, err,
+            )
+            await self._async_reconnect()
+            return await command()
 
     async def async_start_notify(self):
         await self._desk.start_notify()
@@ -117,13 +161,13 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
         await self._desk.stop_notify()
 
     async def async_read_desk_height(self):
-        return await self._desk.read_height()
+        return await self._async_run_command("read_height", self._desk.read_height)
 
     async def async_sit(self):
-        await self._desk.move_to_sitting()
+        await self._async_run_command("move_to_sitting", self._desk.move_to_sitting)
 
     async def async_stand(self):
-        await self._desk.move_to_standing()
+        await self._async_run_command("move_to_standing", self._desk.move_to_standing)
 
     async def _async_height_notify_callback(self, desk: Desk):
         self.async_set_updated_data(desk)
