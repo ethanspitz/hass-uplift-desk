@@ -141,7 +141,11 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
             # Stale callback for a client we've already replaced.
             return
         _LOGGER.debug("Desk %s disconnected", self.desk_info)
-        self._desk.bleak_client = None
+        # Don't null self._desk.bleak_client here. The bleak client's own
+        # `is_connected` already returns False once disconnected, so our
+        # `is_connected` property reflects reality. Nulling the reference
+        # would make the upstream uplift library raise a bare `Exception`
+        # instead of a catchable `BleakError`, breaking our retry path.
         self.async_update_listeners()
 
     async def async_sit(self) -> None:
