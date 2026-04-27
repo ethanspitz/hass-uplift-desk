@@ -20,7 +20,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
-from bleak.exc import BleakCharacteristicNotFoundError, BleakError
+from bleak.exc import BleakCharacteristicNotFoundError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from .const import DOMAIN
@@ -135,20 +135,12 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
         await self._desk.start_notify()
 
     async def _async_run_command(self, action_name: str, command):
-        """Run a desk command, reconnecting and retrying once on stale-cache errors."""
-        await self.async_connect()
+        """Run a desk command, refreshing the service cache once if it goes stale."""
         try:
             return await command()
         except BleakCharacteristicNotFoundError as err:
             _LOGGER.warning(
                 "Desk %s reported missing characteristic during %s (%s); refreshing connection and retrying",
-                self.desk_info, action_name, err,
-            )
-            await self._async_reconnect()
-            return await command()
-        except BleakError as err:
-            _LOGGER.warning(
-                "Bluetooth error on desk %s during %s (%s); refreshing connection and retrying",
                 self.desk_info, action_name, err,
             )
             await self._async_reconnect()
