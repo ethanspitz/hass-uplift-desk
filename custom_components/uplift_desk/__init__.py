@@ -13,6 +13,9 @@ from homeassistant.components.bluetooth import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (CONF_ADDRESS, Platform)
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
+
+from bleak.exc import BleakError
 
 from .coordinator import (
     UpliftDeskBluetoothCoordinator,
@@ -39,10 +42,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: Uplift_Desk_DeskConfigEn
     coordinator: UpliftDeskBluetoothCoordinator = UpliftDeskBluetoothCoordinator(hass, entry, ble_device)
     entry.runtime_data = coordinator
 
-    await coordinator.async_connect()
-    await coordinator.async_start_notify()
+    try:
+        await coordinator.async_connect()
+        await coordinator.async_start_notify()
+        await coordinator.async_read_desk_height()
+    except BleakError as err:
+        # GATT errors (e.g. ESP_GATT_ERROR 133 from ESPHome BT proxies) are often
+        # transient. Tear down so HA retries setup with backoff.
+        await coordinator.async_disconnect()
+        raise ConfigEntryNotReady(
+            f"Error setting up desk {entry.title} ({address}): {err}"
+        ) from err
 
-    await coordinator.async_read_desk_height()
     coordinator.async_set_updated_data(coordinator._desk)
 
     _LOGGER.debug("Initializing Uplift Desk for desk %s: %s", entry.title, entry.data["address"])
