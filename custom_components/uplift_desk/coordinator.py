@@ -91,10 +91,20 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
 
             try:
                 await self._desk.start_notify()
-                await self._desk.read_height()
             except BleakError:
                 await self._async_disconnect_silently()
                 raise
+
+            # Initial height fetch — best-effort. Transient GATT errors here
+            # (common via ESPHome BT proxies) shouldn't abort the connection;
+            # the next height notification will populate the value anyway.
+            try:
+                await self._desk.read_height()
+            except BleakError as err:
+                _LOGGER.debug(
+                    "Initial height read failed for %s (%s); will rely on notifications",
+                    self.desk_info, err,
+                )
 
             self.async_set_updated_data(self._desk)
 
