@@ -1,3 +1,14 @@
 pytest>=8.0
 pytest-asyncio>=0.23
 pytest-homeassistant-custom-component>=0.13.180
+
+# Transitive deps required to import homeassistant.components.bluetooth in tests.
+# pytest-homeassistant-custom-component doesn't pull these in by default.
+aiousbwatcher>=1.1
+pyserial>=3.5
+bleak>=2.1
+bleak-retry-connector>=4.4
+bluetooth-adapters>=2.1
+bluetooth-auto-recovery>=1.5
+bluetooth-data-tools>=1.28
+habluetooth>=5.8
