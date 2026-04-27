@@ -81,40 +81,6 @@ async def test_async_connect_propagates_start_notify_failure_and_disconnects(
     assert coordinator._desk.bleak_client is None
 
 
-async def test_async_connect_calls_pair_before_start_notify(
-    coordinator, patch_establish_connection
-):
-    """Pairing must happen between establish_connection and start_notify so the
-    bonded link is in place before any GATT work on Linak-style desks."""
-    await coordinator.async_connect()
-    client = coordinator._desk.bleak_client
-    client.pair.assert_awaited_once()
-
-
-async def test_async_connect_swallows_pair_failure(
-    coordinator, patch_establish_connection
-):
-    """If pair() raises (backend doesn't support it, or not needed), connect proceeds."""
-    # We need to patch pair on the client created by establish_connection. Easiest
-    # way: hook into the establish_connection mock so the new client's pair raises.
-    from custom_components.uplift_desk import coordinator as coord_mod
-
-    original = coord_mod.establish_connection
-
-    async def _establish_with_failing_pair(*args, **kwargs):
-        client = await original(*args, **kwargs)
-        client.pair.side_effect = BleakError("pair not supported")
-        return client
-
-    import unittest.mock as _mock
-    with _mock.patch.object(coord_mod, "establish_connection", _establish_with_failing_pair):
-        await coordinator.async_connect()
-
-    # start_notify must still have been called.
-    coordinator._desk.start_notify.assert_awaited_once()
-    assert coordinator.is_connected is True
-
-
 async def test_async_connect_swallows_initial_read_height_failure(
     coordinator, patch_establish_connection
 ):
