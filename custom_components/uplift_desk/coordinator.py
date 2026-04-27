@@ -89,21 +89,6 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
             )
             self._desk.bleak_client = client
 
-            # Pair before any GATT work. Linak-based desks (the Uplift family
-            # included) appear to require a bonded link for operations on the
-            # height characteristic — start_notify and read both fail with
-            # GATT 133 through ESPHome BT proxies otherwise. The same pattern
-            # is documented in idasen-ha's ConnectionManager. Best-effort:
-            # backends that don't support pairing (e.g. CoreBluetooth) or
-            # devices that don't need it should not block setup.
-            try:
-                await client.pair()
-            except (BleakError, NotImplementedError) as err:
-                _LOGGER.debug(
-                    "Pairing not performed for %s (%s); continuing",
-                    self.desk_info, err,
-                )
-
             try:
                 await self._desk.start_notify()
             except BleakError:
